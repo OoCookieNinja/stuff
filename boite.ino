@@ -1,18 +1,23 @@
-#include <SoftwareSerial.h>      // Serial Stuff
+#include <AltSoftSerial.h>       // Other Serial
 #include <Wire.h>                // I2C
 #include "DFRobotDFPlayerMini.h" // MP3 Library
 #include <SeeedRFID.h>           // RFID Library
 #include "rgb_lcd.h"             // LCD Library
 
 // Software Serial
-int MP3_thing  = 11; // MP3
-int RFID_Thing = 2;  // RFID
 // RFID
-String rfid_tag;
+int RFID_Rx = 8; // RX
+int RFID_Tx = 9; // TX
+// MP3
+int MP3_Rx = 10; // RX
+int MP3_Tx = 11; // TX
+// RFID
+String rfid_tag = "X";
 unsigned char buffer[64];
 int count = 0;
+int getting_data = 0;
 signed int rfid_tag_pos;
-char* tag_list[] = {"1","2"};
+char* tag_list[] = {"49005BB88E24","510022542A0D"};
 int tag_lenght = sizeof(tag_list) / sizeof(int);
 // LCD
 int lcd_width  = 16;
@@ -26,7 +31,7 @@ int scroll_per_char = 500;
 int scroll_wait_long = 1000;
 // MP3
 int pin_potentiometre = 3;
-int pin_bouton_play = 6;
+int pin_bouton_play = 4;
 int ol_button = 1;
 int button = 0;
 int playing = false;
@@ -35,7 +40,11 @@ int volume_mapped_per = 0;
 int ol_volume_mapped_mp3 = 0;
 int volume_mapped_mp3 = 0;
 
-SoftwareSerial SoftSerial(RFID_Thing, MP3_thing);
+AltSoftSerial AltSerial;
+#include <SoftwareSerial.h>
+SoftwareSerial SoftSerial(MP3_Rx, MP3_Tx);
+#define FPSerial SoftSerial
+
 DFRobotDFPlayerMini player;
 rgb_lcd lcd;
 
@@ -44,6 +53,9 @@ void setup() {
   pinMode(pin_bouton_play, INPUT);
   Serial.begin(9600);
   SoftSerial.begin(9600);
+  AltSerial.begin(9600);
+  player.begin(SoftSerial);
+  
   lcd.begin(lcd_width, lcd_height);
   scroll_time = millis();
   scroll_wait_long = (scroll_wait_long-10)*4;
@@ -62,31 +74,36 @@ int int_length(int l) {
 // RFID
 void clearBufferArray() {
     for (int i=0; i<count; i++)  {
-        buffer[i]=NULL;
+        buffer[i]= "";
     }
 }
 signed int get_rfid_tag() {
-  if (SoftSerial.available()) {
-    rfid_tag = "";
-    while(SoftSerial.available()) {
-      buffer[count++] = SoftSerial.read();
+  if (AltSerial.available() or rfid_tag != "") {
+    if (getting_data == 0) {
+      getting_data = 1;
+      rfid_tag = "";
+      Serial.println(" ");
+      Serial.print("RFID card number: ");
+    }
+    while(AltSerial.available()) {
+      buffer[count++] = AltSerial.read();
       if(count == 64)break;
     }
     rfid_tag = buffer;
-    Serial.print("RFID card number: ");
-    Serial.println(rfid_tag);
+    Serial.print(rfid_tag);
     clearBufferArray();
     count = 0;
     int idx = 0;
     while (idx < tag_lenght) { // Calculates and returns position
       if (rfid_tag == tag_list[idx]) {
-        player.play(idx);
+        player.play(idx+1);
         return idx;
       }
       idx++;
     }
-    return -1; // Error code
+    getting_data = 0;
   } else {
+    getting_data = 0;
     return;
   }
 }
@@ -136,9 +153,9 @@ void print_lcd_screen() { // Function for everything showed on the LCD
   // Play / Pause
   lcd.setCursor(0, lcd_height);
   if (playing) {
-    lcd.print("Play");
+    lcd.print("Play ");
   }
-  else {
+  else {    
     lcd.print("Pause");
   }
 }
@@ -156,24 +173,21 @@ void loop() {
     player.volume(volume_mapped_mp3);
   }
   // Play Button
-  ol_button = button;
   button = digitalRead(pin_bouton_play);
-  if (button != ol_button and button == 1) {
-    playing = not playing;
+  if (button == 1 and ol_button == 0) {
     if (playing) {
-      player.start();
-    }
-    else if (not playing) {
       player.pause();
     }
+    else if (not playing) {
+      player.start();
+    }
+    playing = not playing;
+    ol_button = 1;
+  }
+  else if (button == 0 and ol_button == 1) {
+    ol_button = 0;
   }
   // Other
-  rfid_tag_pos = 0;//get_rfid_tag();
-  switch (rfid_tag_pos) { // Error codes Managing
-    case -1:
-      idx_des = -1;
-    default:
-      idx_des = rfid_tag_pos;
-  }
+  idx_des = get_rfid_tag();
   print_lcd_screen(); // Shows Stuff on LCD
 }
