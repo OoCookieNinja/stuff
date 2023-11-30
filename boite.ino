@@ -12,20 +12,21 @@ int RFID_Tx = 9; // TX
 int MP3_Rx = 10; // RX
 int MP3_Tx = 11; // TX
 // RFID
-String rfid_tag = "X";
+String rfid_tag = "";
 unsigned char buffer[64];
 int count = 0;
-int getting_data = 0;
-signed int rfid_tag_pos;
-char* tag_list[] = {"49005BB88E24","510022542A0D"};
+char tag_char[15] = {"0123456789ABCDEF"};
+char* rfid_buffer_char = "";
+char* tag_list[] = {"20000EC5917A","20000B1693AE"};
 int tag_lenght = sizeof(tag_list) / sizeof(int);
 // LCD
 int lcd_width  = 16;
 int lcd_height = 2;
-char* description[] = {"Alyx sera un jour magnifique","Boop :3"};
+char* description[] = {"Alyx sera un jour magnifique","Boop"};
+String txt = "";
 int des_lenght = sizeof(description) / sizeof(int);
 int idx_des = 0;
-int scroll = 1;
+int scroll = 0;
 unsigned long scroll_time = 0;
 int scroll_per_char = 500;
 int scroll_wait_long = 1000;
@@ -45,6 +46,8 @@ AltSoftSerial AltSerial;
 SoftwareSerial SoftSerial(MP3_Rx, MP3_Tx);
 #define FPSerial SoftSerial
 
+#define char_length(array) ((sizeof(array)) / (sizeof(array[0])))
+
 DFRobotDFPlayerMini player;
 rgb_lcd lcd;
 
@@ -55,7 +58,7 @@ void setup() {
   SoftSerial.begin(9600);
   AltSerial.begin(9600);
   player.begin(SoftSerial);
-  
+
   lcd.begin(lcd_width, lcd_height);
   scroll_time = millis();
   scroll_wait_long = (scroll_wait_long-10)*4;
@@ -69,61 +72,77 @@ int int_length(int l) {
   } while (l);
   return number_of_digits;
 }
-
+bool is_acceptable() {
+    for(int i = 0; i < 15; i++) {
+        if (tag_char[i] == rfid_buffer_char) {
+            return true;
+        }
+    }
+    return false;
+}
 
 // RFID
 void clearBufferArray() {
     for (int i=0; i<count; i++)  {
         buffer[i]= "";
     }
+    count = 0;
 }
 signed int get_rfid_tag() {
-  if (AltSerial.available() or rfid_tag != "") {
-    if (getting_data == 0) {
-      getting_data = 1;
-      rfid_tag = "";
-      Serial.println(" ");
-      Serial.print("RFID card number: ");
-    }
-    while(AltSerial.available()) {
-      buffer[count++] = AltSerial.read();
-      if(count == 64)break;
-    }
-    rfid_tag = buffer;
-    Serial.print(rfid_tag);
-    clearBufferArray();
-    count = 0;
-    int idx = 0;
-    while (idx < tag_lenght) { // Calculates and returns position
-      if (rfid_tag == tag_list[idx]) {
-        player.play(idx+1);
-        return idx;
+  if (AltSerial.available() ) {
+    while(AltSerial.available() ) {
+      rfid_buffer_char = AltSerial.read();
+      if (is_acceptable() and rfid_buffer_char != 0xFC) {
+        buffer[count++] = rfid_buffer_char;
+        rfid_tag = buffer;
       }
-      idx++;
+      if (count == 64) break;
     }
-    getting_data = 0;
-  } else {
-    getting_data = 0;
-    return;
+  }
+  else {
+    if (rfid_tag != "") {
+      clearBufferArray();
+      Serial.print("RFID card number: ");
+      Serial.println(rfid_tag);
+      for (int idx = 0; idx < tag_lenght; idx++) { // Calculates and returns position
+        if (rfid_tag == String(tag_list[idx]) and idx <= des_lenght) {
+          Serial.println(idx);
+          player.play(idx+1);
+          playing = true;
+          rfid_tag = "";
+          scroll_time = millis();
+          scroll = 0;
+          return idx;
+        }
+      }
+    }
+    rfid_tag = "";
+    if (idx_des < 0) {
+      return 1;
+    }
   }
 }
-
 
 // LCD
 void scroll_description() {
-  String txt = description[idx_des]; // Temp value for printing shifted description
-  if (scroll = 0 and millis() - scroll_time >= scroll_wait_long) { // Check if description is being rolled-back / started
+  if (scroll == 0 and millis() - scroll_time >= scroll_wait_long) { // Starting handler
+    lcd.setCursor(0, 0);
     scroll_time = millis();
     scroll++;
+    for (int i = 0; i < lcd_width; i++) {
+      lcd.print(txt[i]);
+    }
   }
-  else if (txt.length() - scroll - lcd_width == -1 and millis() - scroll_time >= scroll_wait_long) {
+  else if (txt.length()-scroll-lcd_width+1 == 0 and millis() - scroll_time >= scroll_wait_long) { // End handler
+    lcd.setCursor(0, 0);
     for (int i = 0; i < lcd_width; i++) {
       lcd.print(txt[i]);
     }
     scroll_time = millis();
     scroll = 0;
   }
-  else if (txt.length() - scroll - lcd_width != -1 and millis() - scroll_time >= scroll_per_char and scroll > 0) { // Pause for every shift
+  else if (txt.length()-scroll-lcd_width+1 > 0 and millis() - scroll_time >= scroll_per_char and scroll > 0) { // Pause for every shift
+    lcd.setCursor(0, 0);
     for (int i = 0; i < lcd_width; i++) {
       lcd.print(txt[scroll+i]);
     }
@@ -133,14 +152,18 @@ void scroll_description() {
 }
 void print_lcd_screen() { // Function for everything showed on the LCD
   // Description
-  lcd.setCursor(0, 0);
-  if (idx_des != -1) {
-    String des_test = description[idx_des];
-    if ( des_test.length() > lcd_width) { // If the description is bigger than the screen
+  idx_des = get_rfid_tag();
+  if (idx_des > -1 and playing) {
+    txt = description[idx_des];
+    if ( txt.length() > lcd_width ) { // If the description is bigger than the screen
       scroll_description();
     }
-    else { // prints if small enough
-      lcd.print(description[idx_des]);
+    else { // Prints if small enough
+      lcd.setCursor(0, 0);
+      lcd.print(txt);
+      for (int i=0; i<lcd_width-txt.length(); i++) {
+        lcd.print(" ");
+      }
     }
   }
   // Volume
@@ -160,20 +183,19 @@ void print_lcd_screen() { // Function for everything showed on the LCD
   }
 }
 
-
 // Loop
 void loop() {
   // Reading
   volume_to_map = analogRead(pin_potentiometre);
+  button = digitalRead(pin_bouton_play);
   // MP3
-  volume_mapped_per = map(volume_to_map,0,1023,0,101);
+  volume_mapped_per = map(volume_to_map,0,1023,0,100);
   ol_volume_mapped_mp3 = volume_mapped_mp3;
   volume_mapped_mp3 = map(volume_to_map,0,1023,0,30);
   if (ol_volume_mapped_mp3 != volume_mapped_mp3) {
     player.volume(volume_mapped_mp3);
   }
   // Play Button
-  button = digitalRead(pin_bouton_play);
   if (button == 1 and ol_button == 0) {
     if (playing) {
       player.pause();
@@ -188,6 +210,5 @@ void loop() {
     ol_button = 0;
   }
   // Other
-  idx_des = get_rfid_tag();
   print_lcd_screen(); // Shows Stuff on LCD
 }
