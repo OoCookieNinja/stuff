@@ -4,9 +4,9 @@
 #include <SeeedRFID.h>           // RFID Library
 #include "rgb_lcd.h"             // LCD Library
 
-char* tag_list[]    = {"","20000EC5917A"                ,"20000B1693AE","510022542A0D","49005BB88E24"};
-char* description[] = {"","Alyx sera un jour magnifique","Boop"        ,"Red"         ,"Blue"};
-
+char* tag_list[]    = {"","6000B36A3881","6000B4D4CECE","6000B210E321","6000B4EB7649","6000B360A211","6000B22BB44D"};
+// char* description[] = {"","Buste d'Auguste","Aureus d'Auguste","Miroir de Neron","Sarcophage de Meleagre","Sarcophage Chevrons","Bacchus"};
+char* description[] = {"","Bacchus","Sarcophage chevrons","Sarcophage de Meleagre","Aureus d'Auguste","Miroir de Neron","Chapiteau corinthien"};
 // Software Serial
 // RFID
 const int RFID_Rx = 8; // RX
@@ -34,7 +34,7 @@ int scroll_per_char = 500;
 int scroll_wait_long = 1000;
 // MP3
 const int pin_potentiometre = 3;
-const int pin_bouton_play = 4;
+const int pin_bouton_play = 5;
 int ol_button = 1;
 int button = 0;
 int playing = false;
@@ -108,16 +108,23 @@ signed int get_rfid_tag() {
       clearBufferArray();
       Serial.print("Code du tag RFID: ");
       Serial.println(rfid_tag);
+      int idx_int;
       for (int idx = 0; idx < tag_lenght; idx++) { // Calcul de la position du TAG
         if (rfid_tag == String(tag_list[idx]) and idx <= des_lenght) {
-          player.play(idx+1);
           playing = true;
           rfid_tag = "";
           scroll_time = millis();
           scroll = 0;
-          Serial.println(idx);
-          return idx;
+          idx_int = idx;
+          break;
         }
+      }
+      if (idx_int > 0 and idx_int <= des_lenght) { // Demarrage sequence son / texte
+        Serial.println(idx_int);
+        Serial.println(des_lenght);
+        Serial.println(des_lenght-idx_int);
+        player.play(des_lenght-idx_int);
+        return idx_int;
       }
     }
     rfid_tag = "";
